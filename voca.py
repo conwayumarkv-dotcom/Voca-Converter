@@ -127,11 +127,14 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             file.seek(0)
             image_bytes = file.read()
             
-            # [수정] google-genai 최신 규격에 맞게 이미지 데이터 전달 방식 변경
+            # [수정 완료] types.Part.from_bytes 구조의 규격을 맞춰 Pydantic 검증 오류를 원천 차단합니다.
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=[
-                    {"data": image_bytes, "mime_type": file.type},
+                    types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type=file.type
+                    ),
                     prompt
                 ],
                 config=types.GenerateContentConfig(
@@ -142,7 +145,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             all_data.extend(page_data)
             
         except Exception as e:
-            # [수정] 무조건적인 할당 제한 경고 대신 실제 에러 메시지를 함께 노출하여 디버깅 용이성 확보
             error_msg = str(e)
             if "quota" in error_msg.lower() or "limit" in error_msg.lower():
                 if idx > 0:
