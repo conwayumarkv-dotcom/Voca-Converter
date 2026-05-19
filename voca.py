@@ -98,7 +98,7 @@ def create_word_document(all_word_data):
 # 2. 백그라운드 AI 호출 및 에러 자동 재시도 워커 함수
 # ==========================================
 def gemini_api_worker(client, image_bytes, mime_type, prompt, result_container):
-    max_retries = 3  # 일시적인 503 과부하 에러 발생 시 최대 재시도 횟수
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -111,15 +111,13 @@ def gemini_api_worker(client, image_bytes, mime_type, prompt, result_container):
             )
             result_container["data"] = json.loads(response.text)
             result_container["status"] = "success"
-            return  # 성공 시 워커 즉시 종료
+            return
         except Exception as e:
             error_msg = str(e)
-            # 503 Unavailable이거나 트래픽 하이 디맨드 상황인 경우 재시도 메커니즘 가동
             if ("503" in error_msg or "unavailable" in error_msg.lower() or "demand" in error_msg.lower()) and attempt < max_retries - 1:
-                time.sleep(2.0 * (attempt + 1))  # 2초, 4초 순차적 딜레이 후 대피 호출
+                time.sleep(2.0 * (attempt + 1))
                 continue
             
-            # 재시도를 다 썼거나 다른 치명적인 에러(할당량 초과 등)인 경우
             result_container["status"] = "error"
             result_container["error_msg"] = error_msg
             return
@@ -169,7 +167,8 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             if ui_progress > 0.99: ui_progress = 0.99
             
             progress_bar.progress(ui_progress)
-            status_text.markdown(f"🧠 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 인공지능 분석이 일정한 속도로 안전하게 순항 중입니다..")
+            # [눈높이 수정] 선생님용 친숙한 멘트로 변경
+            status_text.markdown(f"🔍 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장째) AI가 사진 속 영어 단어를 열심히 읽어내고 있어요..")
             time.sleep(0.05)
             
         if worker_result["status"] == "success" and worker_result["data"]:
@@ -179,28 +178,30 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
                 ui_progress += 0.015
                 if ui_progress > target_max_progress: ui_progress = target_max_progress
                 progress_bar.progress(ui_progress)
-                status_text.markdown(f"📝 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 정제 데이터 매핑 정렬 완료!")
+                # [눈높이 수정] 단어 다듬기 표현으로 변경
+                status_text.markdown(f"✨ **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장째) 선생님 단어장에 맞게 예쁘게 다듬는 중입니다!")
                 time.sleep(0.01)
                 
         elif worker_result["status"] == "error":
             error_msg = worker_result["error_msg"]
             if "quota" in error_msg.lower() or "limit" in error_msg.lower():
                 if idx > 0:
-                    st.warning("⚠️ 구글 계정의 하루 무료 사용량(20장)이 모두 마감되었습니다. 프로그램 보호를 위해 현재까지 변환된 파일들로만 워드를 생성합니다.")
+                    st.warning("⚠️ 오늘 준비된 무료 변환량(20장)을 모두 사용하셨습니다. 아쉽지만 현재까지 성공한 단어들로만 Word 문서를 만듭니다.")
                     break
                 else:
-                    st.error("❌ 오늘 사용 가능한 구글 무료 제공량(20장)을 모두 초과하여 변환을 시작할 수 없습니다. 내일 다시 시도해 주세요.")
+                    st.error("❌ 구글이 제공하는 무료 하루 사용량(20장)을 초과하여 지금은 변환할 수 없습니다. 내일 다시 이용해 주세요.")
                     return None
             elif "503" in error_msg or "unavailable" in error_msg.lower():
-                st.error("❌ 구글 AI 서버가 일시적인 순간 트래픽 폭주 상태입니다. 잠시 후 'Word 파일로 변환하기' 버튼을 다시 한 번 눌러주세요.")
+                st.error("❌ 순간적으로 구글 AI 서버에 사용자가 몰려 응답이 지연되었습니다. 잠시 후 'Word 파일로 변환하기' 버튼을 한 번만 더 눌러주세요.")
                 return None
             else:
-                st.error(f"❌ 변환 중 오류가 발생했습니다: {error_msg}")
+                st.error(f"❌ 단어 변환 중 예상치 못한 오류가 생겼습니다: {error_msg}")
                 return None
                 
     if all_data:
         progress_bar.progress(1.0)
-        status_text.success("🌿 **[ 100% / 100% ]** 모든 단어장 파일 빌드가 균일하게 완료되었습니다!")
+        # [눈높이 수정] 최종 완료 축하 문구 변경
+        status_text.success("🌿 **[ 100% / 100% ]** 수업용 단어장이 완성되었습니다! 아래 다운로드 버튼을 눌러보세요!")
     return all_data
 
 # ==========================================
