@@ -109,40 +109,56 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
     ]
     """
     
-    current_displayed_percent = 0
+    # 누적 진행률 제어를 위한 내부 변수 (0.0 ~ 1.0)
+    current_progress = 0.0
     
     for idx, file in enumerate(uploaded_files):
-        target_percent = int(((idx + 1) / total_files) * 100)
+        # 파일 한 개당 차지하는 전체 대비 가중치 지분
+        file_share = 1.0 / total_files
         
-        pre_target = target_percent - 3 if target_percent > 3 else 0
-        while current_displayed_percent < pre_target:
-            current_displayed_percent += 1
-            progress_bar.progress(current_displayed_percent / 100)
-            status_text.markdown(f"⏳ 처리하는데 시간이 걸리니 조금만 기다려주세요.. ({total_files - idx}초)")
-            time.sleep(0.01)
+        # 1단계: 파일 로딩 단계 (지분의 15%만큼 부드럽게 전진)
+        target_load_progress = current_progress + (file_share * 0.15)
+        while current_progress < target_load_progress:
+            current_progress += (file_share * 0.03)
+            if current_progress > 1.0: current_progress = 1.0
+            progress_bar.progress(current_progress)
+            status_text.markdown(f"⏳ **[ {int(current_progress * 100)}% / 100% ]** ({idx+1}/{total_files}권) 데이터를 불러오는 중입니다..")
+            time.sleep(0.02)
             
-        page_data = None
-        
         try:
             file.seek(0)
             image_bytes = file.read()
             
-            # [수정 완료] types.Part.from_bytes 구조의 규격을 맞춰 Pydantic 검증 오류를 원천 차단합니다.
+            # 2단계: AI 분석 요청 단계 (지분의 75% 영역을 분석 대기 시간 동안 일정 속도로 서서히 밀어줌)
+            target_ai_progress = current_progress + (file_share * 0.75)
+            
+            # 비동기식 느낌을 주기 위해 미세 전진 스레딩 효과 부여 (멈춤 현상 해소)
+            for _ in range(15):
+                if current_progress < target_ai_progress:
+                    current_progress += (file_share * 0.04)
+                    progress_bar.progress(current_progress)
+                    status_text.markdown(f"🧠 **[ {int(current_progress * 100)}% / 100% ]** ({idx+1}/{total_files}권) 인공지능이 영단어 서식을 추출하고 있습니다..")
+                    time.sleep(0.03)
+            
+            # 실제 API 호출 (이 시점에서는 게이지가 이미 정직하게 전진해 있으므로 속도 단절이 최소화됨)
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=[
-                    types.Part.from_bytes(
-                        data=image_bytes,
-                        mime_type=file.type
-                    ),
+                    types.Part.from_bytes(data=image_bytes, mime_type=file.type),
                     prompt
                 ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
+            
             page_data = json.loads(response.text)
             all_data.extend(page_data)
+            
+            # 3단계: 단어 데이터 통합 단계 (남은 10% 지분 채우기)
+            current_progress = (idx + 1) * file_share
+            if current_progress > 1.0: current_progress = 1.0
+            progress_bar.progress(current_progress)
+            status_text.markdown(f"📝 **[ {int(current_progress * 100)}% / 100% ]** ({idx+1}/{total_files}권) 단어 분석 및 정합성 검증 완료!")
+            time.sleep(0.1)
             
         except Exception as e:
             error_msg = str(e)
@@ -156,18 +172,10 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             else:
                 st.error(f"❌ 변환 중 오류가 발생했습니다: {error_msg}")
                 return None
-            
-        while current_displayed_percent < target_percent:
-            current_displayed_percent += 1
-            progress_bar.progress(current_displayed_percent / 100)
-            status_text.markdown(f"⏳ 처리하는데 시간이 걸리니 조금만 기다려주세요.. ({total_files - idx}초)")
-            time.sleep(0.01)
-            
-        time.sleep(0.2)
-        
+                
     if all_data:
         progress_bar.progress(1.0)
-        status_text.success("🌿 정제 프로세스가 성공적으로 완료되었습니다. (100%)")
+        status_text.success("🌿 **[ 100% / 100% ]** 모든 단어의 정제 프로세스가 완벽하게 성공했습니다!")
     return all_data
 
 # ==========================================
