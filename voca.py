@@ -243,14 +243,14 @@ st.markdown("""
         font-weight: 500 !important;
     }
     
-    /* 저작권 문구 우측 정렬 스타일 지정 */
     .brand-author {
-        font-size: 12px !important;
+        font-size: 11px !important;
         color: #A0ABA2 !important;
         text-align: right !important;
         margin-bottom: 45px !important;
         font-weight: 500 !important;
         padding-right: 5px;
+        letter-spacing: 0.5px;
     }
 
     [data-testid="stFileUploader"] {
@@ -304,8 +304,8 @@ st.markdown("""
 
 st.markdown("<div class='brand-title'>Voca-converter</div>", unsafe_allow_html=True)
 st.markdown("<div class='brand-caption'>사진 속 지문을 인식하여 편집 가능한 워드 문서(.docx)로 변환합니다.</div>", unsafe_allow_html=True)
-# [수정 완료] 학원 공식 카피라이트 영어 축약본 문구로 교체 배치 완료
-st.markdown("<div class='brand-author'>© 2026 TOP English Academy. All rights reserved.</div>", unsafe_allow_html=True)
+# [수정 완료] 요청하신 클래식 영문 카피라이트 문구로 세팅을 최종 마감했습니다.
+st.markdown("<div class='brand-author'>© TOP English Academy. All rights reserved.</div>", unsafe_allow_html=True)
 
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
@@ -340,8 +340,6 @@ if uploaded_files:
             word_file_buffer = create_word_document(all_word_data)
             
             st.write("")
-            # [수정 완료] 안내 배너 박스 원천 삭제 조치
-            
             st.download_button(
                 label="📥 수업용 영어 단어장 워드파일(.docx) 다운로드 받기",
                 data=word_file_buffer,
