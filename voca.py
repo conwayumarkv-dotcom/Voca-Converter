@@ -66,7 +66,6 @@ def create_word_document(all_word_data):
         set_cell_shading(hdr_cells[i], "4F81BD")
         set_cell_borders(hdr_cells[i], color="A6A6A6")
         p = hdr_cells[i].paragraphs[0]
-        # [수정] 헤더 타이틀도 깔끔한 매칭을 위해 전체 왼쪽 정렬로 통일
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         for run in p.runs:
             run.font.bold = True
@@ -84,7 +83,6 @@ def create_word_document(all_word_data):
             set_cell_borders(row_cells[i], color="D9D9D9")
             
             p = row_cells[i].paragraphs[0]
-            # [수정 완료] 기존의 가운데 정렬을 제거하고, 사진 원본의 텍스트 배치와 동일하게 '왼쪽 정렬'로 완전 통일
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.space_before = Pt(5)
             p.paragraph_format.space_after = Pt(5)
@@ -97,23 +95,34 @@ def create_word_document(all_word_data):
     return buffer
 
 # ==========================================
-# 2. 백그라운드 AI 호출을 위한 스레드 워커 함수
+# 2. 백그라운드 AI 호출 및 에러 자동 재시도 워커 함수
 # ==========================================
 def gemini_api_worker(client, image_bytes, mime_type, prompt, result_container):
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                prompt
-            ],
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        result_container["data"] = json.loads(response.text)
-        result_container["status"] = "success"
-    except Exception as e:
-        result_container["status"] = "error"
-        result_container["error_msg"] = str(e)
+    max_retries = 3  # 일시적인 503 과부하 에러 발생 시 최대 재시도 횟수
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    prompt
+                ],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            result_container["data"] = json.loads(response.text)
+            result_container["status"] = "success"
+            return  # 성공 시 워커 즉시 종료
+        except Exception as e:
+            error_msg = str(e)
+            # 503 Unavailable이거나 트래픽 하이 디맨드 상황인 경우 재시도 메커니즘 가동
+            if ("503" in error_msg or "unavailable" in error_msg.lower() or "demand" in error_msg.lower()) and attempt < max_retries - 1:
+                time.sleep(2.0 * (attempt + 1))  # 2초, 4초 순차적 딜레이 후 대피 호출
+                continue
+            
+            # 재시도를 다 썼거나 다른 치명적인 에러(할당량 초과 등)인 경우
+            result_container["status"] = "error"
+            result_container["error_msg"] = error_msg
+            return
 
 # ==========================================
 # 3. 이미지 비동기 분석 및 선형 등속도 처리 로직
@@ -145,21 +154,16 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
         )
         api_thread.start()
         
-        # 파일 한 장당 시작점과 한계 분할점 정의
         start_progress = idx / total_files
         target_max_progress = (idx + 1) / total_files
         file_share = 1.0 / total_files
         
-        # [수정 완료] 뒤로 갈수록 느려지는 현상을 막기 위한 완전 선형 등속 스텝 계산법
-        # 호출당 평균 대기 시간 동안 완벽하게 일정한 속도로 그래프를 올립니다.
         step_increment = file_share * 0.0045 
         
         while api_thread.is_alive():
-            # 다음 파일 영역의 96% 지점까지는 어떠한 감속도 없이 무조건 동일한 속도로 전진시킵니다.
             if ui_progress < (start_progress + (file_share * 0.96)):
                 ui_progress += step_increment
             else:
-                # 만약 가상 타임라인보다 네트워크 지연이 길어지면 초미세 등속 유지
                 ui_progress += file_share * 0.0003
                 
             if ui_progress > 0.99: ui_progress = 0.99
@@ -171,7 +175,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
         if worker_result["status"] == "success" and worker_result["data"]:
             all_data.extend(worker_result["data"])
             
-            # AI 데이터 응답이 수신되면 목표 노드 지점까지 아주 빠르게 선형 보정 연결을 수행합니다.
             while ui_progress < target_max_progress:
                 ui_progress += 0.015
                 if ui_progress > target_max_progress: ui_progress = target_max_progress
@@ -188,6 +191,9 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
                 else:
                     st.error("❌ 오늘 사용 가능한 구글 무료 제공량(20장)을 모두 초과하여 변환을 시작할 수 없습니다. 내일 다시 시도해 주세요.")
                     return None
+            elif "503" in error_msg or "unavailable" in error_msg.lower():
+                st.error("❌ 구글 AI 서버가 일시적인 순간 트래픽 폭주 상태입니다. 잠시 후 'Word 파일로 변환하기' 버튼을 다시 한 번 눌러주세요.")
+                return None
             else:
                 st.error(f"❌ 변환 중 오류가 발생했습니다: {error_msg}")
                 return None
