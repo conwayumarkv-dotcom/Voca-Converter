@@ -114,7 +114,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
     for idx, file in enumerate(uploaded_files):
         target_percent = int(((idx + 1) / total_files) * 100)
         
-        # 처리 대기 상태 애니메이션 및 참고 파일의 정확한 모래시계 문구 표시
         pre_target = target_percent - 3 if target_percent > 3 else 0
         while current_displayed_percent < pre_target:
             current_displayed_percent += 1
@@ -128,24 +127,32 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             file.seek(0)
             image_bytes = file.read()
             
+            # [수정] google-genai 최신 규격에 맞게 이미지 데이터 전달 방식 변경
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=[
-                    types.Part.from_bytes(data=image_bytes, mime_type=file.type),
+                    {"data": image_bytes, "mime_type": file.type},
                     prompt
                 ],
-                config=types.GenerateContentConfig(response_mime_type="application/json")
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
             )
             page_data = json.loads(response.text)
             all_data.extend(page_data)
             
         except Exception as e:
-            # 일일 한도 초과 안내 문구
-            if idx > 0:
-                st.warning("⚠️ 구글 계정의 하루 무료 사용량(20장)이 모두 마감되었습니다. 프로그램 보호를 위해 현재까지 변환된 파일들로만 워드를 생성합니다.")
-                break
+            # [수정] 무조건적인 할당 제한 경고 대신 실제 에러 메시지를 함께 노출하여 디버깅 용이성 확보
+            error_msg = str(e)
+            if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+                if idx > 0:
+                    st.warning("⚠️ 구글 계정의 하루 무료 사용량(20장)이 모두 마감되었습니다. 프로그램 보호를 위해 현재까지 변환된 파일들로만 워드를 생성합니다.")
+                    break
+                else:
+                    st.error("❌ 오늘 사용 가능한 구글 무료 제공량(20장)을 모두 초과하여 변환을 시작할 수 없습니다. 내일 다시 시도해 주세요.")
+                    return None
             else:
-                st.error("❌ 오늘 사용 가능한 구글 무료 제공량(20장)을 모두 초과하여 변환을 시작할 수 없습니다. 내일 다시 시도해 주세요.")
+                st.error(f"❌ 변환 중 오류가 발생했습니다: {error_msg}")
                 return None
             
         while current_displayed_percent < target_percent:
@@ -166,15 +173,12 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
 # ==========================================
 st.set_page_config(page_title="Voca-converter", layout="centered", page_icon="📝")
 
-# 🎨 디자인 커스텀 브랜딩 CSS (배경색, 폰트 색상, 버튼 및 크레딧 정렬)
 st.markdown("""
     <style>
-    /* 전체 배경 크림 베이지 톤 */
     html, body, [data-testid="stAppViewContainer"] {
         background-color: #FBF9F4 !important;
     }
     
-    /* 레이아웃 폭 조정 */
     [data-testid="stMainBlockContainer"] {
         background-color: transparent !important;
         max-width: 720px !important;
@@ -182,7 +186,6 @@ st.markdown("""
         padding-top: 50px !important;
     }
     
-    /* 기본 테두리 제거 */
     [data-testid="stVerticalBlockBorderContainer"] {
         border: none !important;
         background: transparent !important;
@@ -190,7 +193,6 @@ st.markdown("""
         padding: 0 !important;
     }
 
-    /* 상단 타이틀 로고 무드 */
     .brand-title {
         font-size: 52px !important;
         font-weight: 700 !important;
@@ -200,7 +202,6 @@ st.markdown("""
         letter-spacing: -1px !important;
     }
     
-    /* 서브 한글 설명 문구 */
     .brand-caption {
         font-size: 15px !important;
         color: #8C9A86 !important;
@@ -209,7 +210,6 @@ st.markdown("""
         font-weight: 500 !important;
     }
     
-    /* [수정] 아래줄 우측 정렬로 배치한 (Made by Manju) 스타일 */
     .brand-author {
         font-size: 13px !important;
         color: #A0ABA2 !important;
@@ -219,7 +219,6 @@ st.markdown("""
         padding-right: 5px;
     }
 
-    /* 파일 업로더 박스 색상 */
     [data-testid="stFileUploader"] {
         border: none !important;
         background-color: #EEF1F6 !important;
@@ -227,7 +226,6 @@ st.markdown("""
         padding: 20px 25px !important;
     }
     
-    /* 카키 민트 변환 버튼 */
     div.stButton > button:first-child {
         background-color: #85A392 !important; 
         color: white !important;
@@ -243,7 +241,6 @@ st.markdown("""
         background-color: #6C8B7A !important;
     }
     
-    /* 다운로드 버튼 블루그레이 스타일 */
     [data-testid="stDownloadButton"]>button {
         background-color: #78909C !important;
         color: white !important;
@@ -255,7 +252,6 @@ st.markdown("""
         background-color: #607D8B !important;
     }
     
-    /* 파스텔 블루 안내상자 커스텀 */
     div[data-testid="stNotification"] {
         background-color: #E8F1FC !important;
         border: none !important;
@@ -266,14 +262,12 @@ st.markdown("""
         font-weight: 500 !important;
     }
     
-    /* 게이지 진행률 바 색상 */
     .stProgress > div > div > div > div {
         background-color: #85A392 !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# 🏷️ 브랜드 헤더 섹션 (소문자 괄호 표기 및 위치 정밀 조정 완료)
 st.markdown("<div class='brand-title'>Voca-converter</div>", unsafe_allow_html=True)
 st.markdown("<div class='brand-caption'>사진 속 지문을 인식하여 편집 가능한 워드 문서(.docx)로 변환합니다.</div>", unsafe_allow_html=True)
 st.markdown("<div class='brand-author'>(Made by Manju)</div>", unsafe_allow_html=True)
