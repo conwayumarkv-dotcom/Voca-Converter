@@ -66,7 +66,8 @@ def create_word_document(all_word_data):
         set_cell_shading(hdr_cells[i], "4F81BD")
         set_cell_borders(hdr_cells[i], color="A6A6A6")
         p = hdr_cells[i].paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER if i < 2 else WD_ALIGN_PARAGRAPH.LEFT
+        # [수정] 헤더 타이틀도 깔끔한 매칭을 위해 전체 왼쪽 정렬로 통일
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         for run in p.runs:
             run.font.bold = True
             run.font.color.rgb = docx.shared.RGBColor(255, 255, 255)
@@ -83,9 +84,10 @@ def create_word_document(all_word_data):
             set_cell_borders(row_cells[i], color="D9D9D9")
             
             p = row_cells[i].paragraphs[0]
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER if i < 2 else WD_ALIGN_PARAGRAPH.LEFT
-            p.paragraph_format.space_before = Pt(4)
-            p.paragraph_format.space_after = Pt(4)
+            # [수정 완료] 기존의 가운데 정렬을 제거하고, 사진 원본의 텍스트 배치와 동일하게 '왼쪽 정렬'로 완전 통일
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.space_before = Pt(5)
+            p.paragraph_format.space_after = Pt(5)
             for run in p.runs:
                 run.font.size = Pt(10)
                 
@@ -98,7 +100,6 @@ def create_word_document(all_word_data):
 # 2. 백그라운드 AI 호출을 위한 스레드 워커 함수
 # ==========================================
 def gemini_api_worker(client, image_bytes, mime_type, prompt, result_container):
-    """실제 AI 연산을 백그라운드에서 실행하여 메인 UI 스레드 멈춤을 방지합니다."""
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -115,7 +116,7 @@ def gemini_api_worker(client, image_bytes, mime_type, prompt, result_container):
         result_container["error_msg"] = str(e)
 
 # ==========================================
-# 3. 이미지 비동기 분석 및 균일 속도 트래픽 처리 로직
+# 3. 이미지 비동기 분석 및 선형 등속도 처리 로직
 # ==========================================
 def process_images_safely(client, uploaded_files, api_key, progress_bar, status_text):
     all_data = []
@@ -130,54 +131,52 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
     ]
     """
     
-    # 육안으로 보기에 완벽히 평탄한 전진 속도를 연출하기 위한 루프 제어
     ui_progress = 0.0
     
     for idx, file in enumerate(uploaded_files):
         file.seek(0)
         image_bytes = file.read()
         
-        # 결과를 받아올 안전 금고(컨테이너) 생성
         worker_result = {"status": "pending", "data": None, "error_msg": None}
         
-        # 백그라운드 비동기 스레드 생성 및 즉시 시작
         api_thread = threading.Thread(
             target=gemini_api_worker, 
             args=(client, image_bytes, file.type, prompt, worker_result)
         )
         api_thread.start()
         
-        # 이 파일이 도달해야 하는 최종 목적지 상한선
+        # 파일 한 장당 시작점과 한계 분할점 정의
+        start_progress = idx / total_files
         target_max_progress = (idx + 1) / total_files
+        file_share = 1.0 / total_files
         
-        # AI가 일하는 동안 초당 일정한 속도로 부드럽게 게이지를 밀어줍니다.
-        # 루프 한 번당 0.05초 대기 -> 1초에 약 20번 갱신
+        # [수정 완료] 뒤로 갈수록 느려지는 현상을 막기 위한 완전 선형 등속 스텝 계산법
+        # 호출당 평균 대기 시간 동안 완벽하게 일정한 속도로 그래프를 올립니다.
+        step_increment = file_share * 0.0045 
+        
         while api_thread.is_alive():
-            # 목표치 직전(95% 수준)까지는 일정한 등속도로 전진
-            available_room = target_max_progress - ui_progress
-            if available_room > (1.0 / total_files) * 0.15:
-                # 파일당 할당량에 맞추어 매끄러운 속도로 증가
-                ui_progress += (1.0 / total_files) * 0.006
+            # 다음 파일 영역의 96% 지점까지는 어떠한 감속도 없이 무조건 동일한 속도로 전진시킵니다.
+            if ui_progress < (start_progress + (file_share * 0.96)):
+                ui_progress += step_increment
             else:
-                # 거의 다 왔는데 아직 AI 응답이 안 왔다면 미세하게 숨고르기 전진 (멈춘 느낌 차단)
-                ui_progress += (1.0 / total_files) * 0.0008
+                # 만약 가상 타임라인보다 네트워크 지연이 길어지면 초미세 등속 유지
+                ui_progress += file_share * 0.0003
                 
             if ui_progress > 0.99: ui_progress = 0.99
             
             progress_bar.progress(ui_progress)
-            status_text.markdown(f"🧠 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 인공지능이 영단어 매핑을 실시간 연산 중입니다..")
+            status_text.markdown(f"🧠 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 인공지능 분석이 일정한 속도로 안전하게 순항 중입니다..")
             time.sleep(0.05)
             
-        # 스레드가 종료된 후 결과 데이터 처리
         if worker_result["status"] == "success" and worker_result["data"]:
             all_data.extend(worker_result["data"])
             
-            # AI 처리가 끝난 후 다음 파일로 넘어가기 전 해당 파일의 목표 진행률로 부드럽게 보정 안착
+            # AI 데이터 응답이 수신되면 목표 노드 지점까지 아주 빠르게 선형 보정 연결을 수행합니다.
             while ui_progress < target_max_progress:
-                ui_progress += 0.01
+                ui_progress += 0.015
                 if ui_progress > target_max_progress: ui_progress = target_max_progress
                 progress_bar.progress(ui_progress)
-                status_text.markdown(f"📝 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 단어 통합 정제 완료!")
+                status_text.markdown(f"📝 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장) 정제 데이터 매핑 정렬 완료!")
                 time.sleep(0.01)
                 
         elif worker_result["status"] == "error":
@@ -195,7 +194,7 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
                 
     if all_data:
         progress_bar.progress(1.0)
-        status_text.success("🌿 **[ 100% / 100% ]** 모든 영단어 정제 프로세스가 성공적으로 완료되었습니다!")
+        status_text.success("🌿 **[ 100% / 100% ]** 모든 단어장 파일 빌드가 균일하게 완료되었습니다!")
     return all_data
 
 # ==========================================
