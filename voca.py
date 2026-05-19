@@ -167,7 +167,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
             if ui_progress > 0.99: ui_progress = 0.99
             
             progress_bar.progress(ui_progress)
-            # [눈높이 수정] 선생님용 친숙한 멘트로 변경
             status_text.markdown(f"🔍 **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장째) AI가 사진 속 영어 단어를 열심히 읽어내고 있어요..")
             time.sleep(0.05)
             
@@ -178,7 +177,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
                 ui_progress += 0.015
                 if ui_progress > target_max_progress: ui_progress = target_max_progress
                 progress_bar.progress(ui_progress)
-                # [눈높이 수정] 단어 다듬기 표현으로 변경
                 status_text.markdown(f"✨ **[ {int(ui_progress * 100)}% / 100% ]** ({idx+1}/{total_files}장째) 선생님 단어장에 맞게 예쁘게 다듬는 중입니다!")
                 time.sleep(0.01)
                 
@@ -200,7 +198,6 @@ def process_images_safely(client, uploaded_files, api_key, progress_bar, status_
                 
     if all_data:
         progress_bar.progress(1.0)
-        # [눈높이 수정] 최종 완료 축하 문구 변경
         status_text.success("🌿 **[ 100% / 100% ]** 수업용 단어장이 완성되었습니다! 아래 다운로드 버튼을 눌러보세요!")
     return all_data
 
@@ -341,8 +338,13 @@ if uploaded_files:
             word_file_buffer = create_word_document(all_word_data)
             
             st.write("")
+            # [눈높이 수정 완료] 바탕화면 저장 가이드 문구 배너 추가
+            st.info("💡 **컴퓨터 바탕화면에 바로 저장하고 싶으신가요?**\n크롬 브라우저 오른쪽 상단 [점 3개] ➡️ [설정] ➡️ [다운로드] 메뉴에서 다운로드 위치를 **바탕화면**으로 변경해 두시면 항상 편리하게 다운로드 받으실 수 있습니다.")
+            
+            st.write("")
+            # [눈높이 수정 완료] 버튼 문구를 학원 선생님 직관용으로 명확하게 갱신
             st.download_button(
-                label="📥 정제된 수업용 Word 문서 다운로드 (.docx)",
+                label="📥 수업용 영어 단어장 워드파일(.docx) 다운로드 받기",
                 data=word_file_buffer,
                 file_name="🔮_통합_영어단어장.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
